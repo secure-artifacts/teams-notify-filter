@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Teams 通知过滤器",
+  "version": "1.2.0",
+  "description": "私人消息始终通知，仅对白名单群组发送通知；有新消息立即提醒。",
+  "permissions": ["storage", "notifications", "tabs", "scripting"],
+  "host_permissions": ["https://teams.microsoft.com/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Teams 通知过滤器"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://teams.microsoft.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

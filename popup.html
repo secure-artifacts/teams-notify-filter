@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Teams 通知过滤器</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <h1>Teams 通知过滤器</h1>
+
+    <label class="row">
+      <input id="enabled" type="checkbox" />
+      <span>启用插件</span>
+    </label>
+
+    <section class="card">
+      <label for="allowedGroups">允许通知的群组名（每行一个）</label>
+      <textarea
+        id="allowedGroups"
+        rows="7"
+        placeholder="例如：
+项目A群
+研发同步群"
+      ></textarea>
+      <p class="hint">规则：私人消息始终通知；群组消息只有名称匹配上面列表才通知。</p>
+    </section>
+
+    <button id="openTeamsBtn" type="button" class="secondary">打开 Teams 后台监听页</button>
+    <p id="monitorStatus" class="meta">正在检查监听状态…</p>
+
+    <button id="saveBtn" type="button">保存设置</button>
+    <p id="status" class="status" hidden></p>
+
+    <footer>
+      <p>启用后会在后台保持一个 Teams 标签页（可最小化）。有新消息时立即检测并提醒，不做定时轮询。</p>
+    </footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
