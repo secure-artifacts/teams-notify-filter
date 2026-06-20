@@ -10,38 +10,57 @@
   let dragThreadId = null;
   let dragThreadTitle = "";
   let collapsed = false;
+  let searchQuery = "";
+  let lastThreadsKey = "";
+  let renderTimer = null;
+  let catalogSyncTimer = null;
+  let cachedThreads = [];
 
   initSidebar().catch((err) => console.warn("[teams-notify] sidebar", err));
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && changes.config) {
-      config = normalizeConfig(changes.config.newValue);
-      renderSidebar();
-    }
+    if (area !== "local" || !changes.config) return;
+    const prev = config;
+    const next = normalizeConfig(changes.config.newValue);
+    const catalogOnly =
+      JSON.stringify(prev.notifyThreadIds) === JSON.stringify(next.notifyThreadIds) &&
+      JSON.stringify(prev.notifyThreadTitles) === JSON.stringify(next.notifyThreadTitles) &&
+      JSON.stringify(prev.manualThreads) === JSON.stringify(next.manualThreads) &&
+      prev.enabled === next.enabled;
+    config = next;
+    if (catalogOnly) return;
+    scheduleRender();
   });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === "TEAMS_SIDEBAR_REFRESH") {
-      refreshAndRender().then(() => sendResponse({ ok: true }));
-      return true;
-    }
-    if (message?.type === "TEAMS_PANEL_REFRESH") {
-      refreshAndRender().then(() => sendResponse({ ok: true }));
+    if (message?.type === "TEAMS_SIDEBAR_REFRESH" || message?.type === "TEAMS_PANEL_REFRESH") {
+      refreshAndRender(true).then(() => sendResponse({ ok: true }));
       return true;
     }
     return false;
   });
 
+  function stopTeamsCapture(el) {
+    const stop = (e) => e.stopPropagation();
+    el.addEventListener("mousedown", stop, true);
+    el.addEventListener("mouseup", stop, true);
+    el.addEventListener("click", stop, true);
+    el.addEventListener("pointerdown", stop, true);
+    el.addEventListener("keydown", stop, true);
+    el.addEventListener("keyup", stop, true);
+    el.addEventListener("focusin", stop, true);
+  }
+
   async function initSidebar() {
     if (document.getElementById(SIDEBAR_ID)) return;
     injectShell();
     await loadConfig();
-    await refreshAndRender();
+    await refreshAndRender(true);
     setInterval(() => {
-      if (!document.getElementById(SIDEBAR_ID)?.classList.contains("collapsed")) {
-        refreshAndRender().catch(() => {});
-      }
-    }, 20000);
+      if (document.getElementById(SIDEBAR_ID)?.classList.contains("collapsed")) return;
+      if (document.activeElement?.id === "tn-group-search") return;
+      refreshAndRender(false).catch(() => {});
+    }, 30000);
   }
 
   function injectShell() {
@@ -61,9 +80,24 @@
         <span>启用通知过滤</span>
       </label>
       <p class="tn-status-line" id="tn-status-line">加载中…</p>
+      <div class="tn-search-wrap">
+        <input type="text" id="tn-group-search" class="tn-search" placeholder="搜索群组…" autocomplete="off" />
+      </div>
       <div class="tn-sidebar-main" id="tn-sidebar-body"></div>
     `;
     document.body.appendChild(el);
+    stopTeamsCapture(el);
+
+    const search = el.querySelector("#tn-group-search");
+    search?.addEventListener("input", () => {
+      searchQuery = search.value;
+      paintAllGroups();
+    });
+    search?.addEventListener("mousedown", (e) => e.stopPropagation());
+    search?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      search.focus();
+    });
 
     el.querySelector("#tn-collapse")?.addEventListener("click", () => {
       collapsed = !collapsed;
@@ -73,7 +107,7 @@
     el.querySelector("#tn-refresh")?.addEventListener("click", () => refreshAndRender(true));
     el.querySelector("#tn-add-current")?.addEventListener("click", () => addCurrentChat());
     el.querySelector("#tn-enabled")?.addEventListener("change", (e) =>
-      saveConfig({ enabled: e.target.checked })
+      saveConfig({ enabled: e.target.checked }, false)
     );
   }
 
@@ -96,10 +130,11 @@
     if (enabledEl) enabledEl.checked = !!config.enabled;
   }
 
-  async function saveConfig(partial) {
+  async function saveConfig(partial, refresh = true) {
     const res = await sendMessage("SAVE_CONFIG", { config: partial });
     config = normalizeConfig(res.config);
-    await refreshAndRender(true);
+    if (refresh) await refreshAndRender(true);
+    else scheduleRender();
   }
 
   async function addCurrentChat() {
@@ -110,8 +145,25 @@
     }
     const manual = [...(config.manualThreads || [])];
     if (!manual.some((t) => t.id === current.id)) manual.push(current);
-    await saveConfig({ manualThreads: manual });
+    await saveConfig({ manualThreads: manual }, true);
     setStatus(`已添加：${current.title}`);
+  }
+
+  function scheduleRender() {
+    if (document.activeElement?.id === "tn-group-search") {
+      clearTimeout(renderTimer);
+      renderTimer = setTimeout(() => scheduleRender(), 500);
+      return;
+    }
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(() => renderSidebar(), 80);
+  }
+
+  function scheduleCatalogSync(threads) {
+    clearTimeout(catalogSyncTimer);
+    catalogSyncTimer = setTimeout(() => {
+      sendMessage("TEAMS_SYNC_CATALOG", { threads }).catch(() => {});
+    }, 2000);
   }
 
   async function refreshAndRender(force) {
@@ -124,7 +176,7 @@
         forceIdb: !!force,
       });
     }
-    await renderSidebar();
+    await renderSidebar(true);
   }
 
   function mergeManualThreads(threads) {
@@ -136,33 +188,44 @@
     return [...map.values()].sort((a, b) => a.title.localeCompare(b.title, "zh"));
   }
 
-  async function renderSidebar() {
+  function getThreads() {
+    let threads = window.TeamsNotifyUtils?.collectAllThreads?.(config.threadCatalog) || [];
+    return mergeManualThreads(threads);
+  }
+
+  async function renderSidebar(syncCatalog) {
     const body = document.getElementById("tn-sidebar-body");
     if (!body || !window.TeamsNotifyUtils) return;
 
-    let threads = window.TeamsNotifyUtils.collectAllThreads(config.threadCatalog);
-    threads = mergeManualThreads(threads);
+    cachedThreads = getThreads();
+    const threadsKey = cachedThreads.map((t) => t.id).join("|");
+    if (threadsKey === lastThreadsKey && body.childElementCount > 0 && !syncCatalog) {
+      paintAllGroups();
+      return;
+    }
+    lastThreadsKey = threadsKey;
 
-    await sendMessage("TEAMS_SYNC_CATALOG", { threads }).catch(() => {});
+    if (syncCatalog) scheduleCatalogSync(cachedThreads);
 
-    setStatus(`共 ${threads.length} 个会话（群组 ${threads.filter((t) => t.chatType === "group").length}）`);
+    setStatus(
+      `共 ${cachedThreads.length} 个会话（群组 ${cachedThreads.filter((t) => t.chatType === "group").length}）`
+    );
 
     const notifySet = new Set(config.notifyThreadIds || []);
     const notifyTitleSet = new Set(config.notifyThreadTitles || []);
     const norm = window.TeamsNotifyUtils.normalizeTitleKey;
 
-    const privates = threads.filter((t) => t.chatType === "private");
-    const groups = threads.filter((t) => t.chatType === "group");
+    const privates = cachedThreads.filter((t) => t.chatType === "private");
+    const groups = cachedThreads.filter((t) => t.chatType === "group");
     const notifyGroups = groups.filter(
       (t) => notifySet.has(t.id) || notifyTitleSet.has(norm(t.title))
-    );
-    const silentGroups = groups.filter(
-      (t) => !notifySet.has(t.id) && !notifyTitleSet.has(norm(t.title))
     );
 
     body.innerHTML = "";
 
-    body.appendChild(buildSection("私人消息（始终通知）", "私聊始终会提醒。", privates, "private", notifySet, notifyTitleSet));
+    body.appendChild(
+      buildSection("私人消息（始终通知）", "私聊始终会提醒。", privates, "private", notifySet, notifyTitleSet)
+    );
 
     const notifySection = buildSection(
       "🔔 通知文件夹",
@@ -177,33 +240,44 @@
 
     const allSection = document.createElement("section");
     allSection.className = "tn-section";
-    allSection.innerHTML = `<p class="tn-section-title">💬 所有群组（点击打开聊天）</p>`;
-    const search = document.createElement("input");
-    search.className = "tn-search";
-    search.placeholder = "搜索群组…";
-    allSection.appendChild(search);
+    allSection.innerHTML = `<p class="tn-section-title">💬 所有群组（点击名称打开聊天）</p>`;
     const allList = document.createElement("div");
+    allList.id = "tn-all-groups-list";
     allList.className = "tn-list all-zone";
     bindDropZone(allList, "silent");
-
-    function paintAll(q) {
-      allList.innerHTML = "";
-      const query = String(q || "").trim().toLowerCase();
-      const list = silentGroups.filter((t) => !query || t.title.toLowerCase().includes(query));
-      if (!list.length) {
-        allList.innerHTML = `<div class="tn-empty">${query ? "没有匹配" : "暂无群组，请点「添加当前聊天」或刷新"}</div>`;
-        return;
-      }
-      list.forEach((t) => allList.appendChild(renderItem(t, "silent", notifySet, notifyTitleSet)));
-    }
-
-    search.addEventListener("input", () => paintAll(search.value));
-    paintAll("");
     allSection.appendChild(allList);
     body.appendChild(allSection);
 
+    const searchEl = document.getElementById("tn-group-search");
+    if (searchEl && searchEl.value !== searchQuery) searchEl.value = searchQuery;
+
+    paintAllGroups();
+
     const enabledEl = document.getElementById("tn-enabled");
     if (enabledEl) enabledEl.checked = !!config.enabled;
+  }
+
+  function paintAllGroups() {
+    const allList = document.getElementById("tn-all-groups-list");
+    if (!allList) return;
+
+    const notifySet = new Set(config.notifyThreadIds || []);
+    const notifyTitleSet = new Set(config.notifyThreadTitles || []);
+    const norm = window.TeamsNotifyUtils.normalizeTitleKey;
+    const groups = cachedThreads.filter((t) => t.chatType === "group");
+    const silentGroups = groups.filter(
+      (t) => !notifySet.has(t.id) && !notifyTitleSet.has(norm(t.title))
+    );
+
+    const query = String(searchQuery || "").trim().toLowerCase();
+    const list = silentGroups.filter((t) => !query || t.title.toLowerCase().includes(query));
+
+    allList.innerHTML = "";
+    if (!list.length) {
+      allList.innerHTML = `<div class="tn-empty">${query ? "没有匹配" : "暂无群组，请点「添加当前聊天」或刷新"}</div>`;
+      return;
+    }
+    list.forEach((t) => allList.appendChild(renderItem(t, notifySet, notifyTitleSet)));
   }
 
   function buildSection(title, hint, threads, zone, notifySet, notifyTitleSet) {
@@ -215,19 +289,20 @@
     if (!threads.length) {
       list.innerHTML = `<div class="tn-empty">暂无</div>`;
     } else {
-      threads.forEach((t) => list.appendChild(renderItem(t, zone, notifySet, notifyTitleSet)));
+      threads.forEach((t) => list.appendChild(renderItem(t, notifySet, notifyTitleSet)));
     }
     section.appendChild(list);
     return section;
   }
 
-  function renderItem(thread, zone, notifySet, notifyTitleSet) {
+  function renderItem(thread, notifySet, notifyTitleSet) {
     const item = document.createElement("div");
     item.className = `tn-item${thread.chatType === "private" ? " private" : ""}`;
 
     if (thread.chatType !== "private") {
       item.draggable = true;
-      item.addEventListener("dragstart", () => {
+      item.addEventListener("dragstart", (e) => {
+        e.stopPropagation();
         dragThreadId = thread.id;
         dragThreadTitle = thread.title;
       });
@@ -241,7 +316,9 @@
     title.className = "tn-item-title";
     title.textContent = thread.title;
     title.title = `打开：${thread.title}`;
-    title.addEventListener("click", () => {
+    title.addEventListener("mousedown", (e) => e.stopPropagation());
+    title.addEventListener("click", (e) => {
+      e.stopPropagation();
       window.TeamsNotifyNav?.openConversation?.(thread.id);
     });
 
@@ -262,9 +339,11 @@
       btn.type = "button";
       btn.className = "tn-btn secondary";
       btn.textContent = inNotify ? "移出" : "通知";
-      btn.addEventListener("click", () =>
-        moveThread(thread.id, inNotify ? "silent" : "notify", thread.title)
-      );
+      btn.addEventListener("mousedown", (e) => e.stopPropagation());
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        moveThread(thread.id, inNotify ? "silent" : "notify", thread.title);
+      });
       item.appendChild(btn);
     }
 
@@ -275,11 +354,13 @@
     if (!el) return;
     el.addEventListener("dragover", (e) => {
       e.preventDefault();
+      e.stopPropagation();
       el.classList.add("drag-over");
     });
     el.addEventListener("dragleave", () => el.classList.remove("drag-over"));
     el.addEventListener("drop", async (e) => {
       e.preventDefault();
+      e.stopPropagation();
       el.classList.remove("drag-over");
       if (!dragThreadId) return;
       await moveThread(dragThreadId, zone, dragThreadTitle);
@@ -299,7 +380,7 @@
       ids.delete(threadId);
       if (titleKey) titles.delete(titleKey);
     }
-    await saveConfig({ notifyThreadIds: [...ids], notifyThreadTitles: [...titles] });
+    await saveConfig({ notifyThreadIds: [...ids], notifyThreadTitles: [...titles] }, false);
   }
 
   function setStatus(text) {
