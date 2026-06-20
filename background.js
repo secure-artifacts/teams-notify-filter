@@ -272,11 +272,21 @@ function isLoginUrl(url) {
   }
 }
 
+function isTeamsHost(host) {
+  const h = String(host || "").toLowerCase();
+  return (
+    h === "teams.microsoft.com" ||
+    h.endsWith(".teams.microsoft.com") ||
+    h === "teams.live.com" ||
+    h.endsWith(".teams.live.com")
+  );
+}
+
 function isTeamsUrl(url) {
   try {
     const host = new URL(url).hostname.toLowerCase();
     if (isLoginUrl(url)) return false;
-    return host === "teams.microsoft.com" || host.endsWith(".teams.microsoft.com");
+    return isTeamsHost(host);
   } catch {
     return false;
   }
@@ -287,6 +297,7 @@ function isTeamsLoginUrl(url) {
   const lower = String(url || "").toLowerCase();
   return (
     lower.includes("teams.microsoft.com") ||
+    lower.includes("teams.live.com") ||
     lower.includes("teams.live.com") ||
     lower.includes("microsoftteams") ||
     lower.includes("1fec8e78-b456-4f79-90fe-575705da6696")
@@ -365,7 +376,7 @@ async function ensureTeamsMonitorTab(createIfMissing) {
       const again = await resolveTeamsMonitorTab();
       if (again) return again;
 
-    throw new Error("未找到已打开的 Teams 标签页，请在本浏览器手动打开 teams.microsoft.com");
+      throw new Error("未找到已打开的 Teams 标签页，请先打开 teams.live.com 或 teams.microsoft.com");
     } finally {
       ensureTabPromise = null;
     }
@@ -402,7 +413,7 @@ function sleep(ms) {
 async function openTeamsTab(active = true) {
   let tabId = await resolveTeamsMonitorTab();
   if (!tabId) {
-    throw new Error("请先在本浏览器打开 teams.microsoft.com 并登录，再点此按钮切换（不会新建登录页）");
+    throw new Error("请先打开 teams.live.com 或 teams.microsoft.com 并登录，再点此按钮切换");
   }
 
   const tab = await focusTeamsTab(tabId);

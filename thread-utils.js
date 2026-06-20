@@ -127,6 +127,7 @@
       /conversationId=([^&#]+)/i,
       /threadId=([^&#]+)/i,
       /\/l\/chat\/([^/?#]+)/i,
+      /\/v2\/[^/?#]*\/([^/?#]+)/i,
     ];
     for (const pattern of patterns) {
       const match = text.match(pattern);

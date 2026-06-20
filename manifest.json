@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Teams 通知过滤器",
-  "version": "2.1.4",
-  "description": "在 Teams 页面管理通知文件夹：拦截网页原生通知，私聊始终提醒，仅通知文件夹内群组提醒。",
+  "version": "2.2.0",
+  "description": "在 Teams 网页版管理通知文件夹：支持 teams.microsoft.com 与 teams.live.com，私聊始终提醒。",
   "permissions": ["storage", "notifications", "tabs", "scripting", "alarms"],
-  "host_permissions": ["https://teams.microsoft.com/*"],
+  "host_permissions": ["https://teams.microsoft.com/*", "https://teams.live.com/*"],
   "action": {
     "default_popup": "popup.html",
     "default_title": "Teams 通知过滤器"
@@ -14,12 +14,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://teams.microsoft.com/*"],
+      "matches": ["https://teams.microsoft.com/*", "https://teams.live.com/*"],
       "js": ["notification-guard.js"],
       "run_at": "document_start"
     },
     {
-      "matches": ["https://teams.microsoft.com/*"],
+      "matches": ["https://teams.microsoft.com/*", "https://teams.live.com/*"],
       "js": ["thread-utils.js", "teams-panel.js", "content.js"],
       "css": ["teams-panel.css"],
       "run_at": "document_idle"
@@ -28,7 +28,7 @@
   "web_accessible_resources": [
     {
       "resources": ["teams-panel.css", "notification-guard-page.js"],
-      "matches": ["https://teams.microsoft.com/*"]
+      "matches": ["https://teams.microsoft.com/*", "https://teams.live.com/*"]
     }
   ]
 }
