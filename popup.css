@@ -84,6 +84,15 @@ button.secondary:hover {
   color: #4b5563;
 }
 
+.brave-hint {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 6px;
+  background: #fef3c7;
+  color: #92400e;
+  line-height: 1.5;
+}
+
 footer {
   margin-top: 10px;
   font-size: 11px;

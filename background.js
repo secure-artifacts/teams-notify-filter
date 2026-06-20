@@ -365,7 +365,7 @@ async function ensureTeamsMonitorTab(createIfMissing) {
       const again = await resolveTeamsMonitorTab();
       if (again) return again;
 
-      throw new Error("未找到已打开的 Teams 标签页，请手动在 Chrome 打开 teams.microsoft.com");
+    throw new Error("未找到已打开的 Teams 标签页，请在本浏览器手动打开 teams.microsoft.com");
     } finally {
       ensureTabPromise = null;
     }
@@ -402,7 +402,7 @@ function sleep(ms) {
 async function openTeamsTab(active = true) {
   let tabId = await resolveTeamsMonitorTab();
   if (!tabId) {
-    throw new Error("请先在 Chrome 打开 teams.microsoft.com 并登录，再点此按钮切换过去（不会新建登录页）");
+    throw new Error("请先在本浏览器打开 teams.microsoft.com 并登录，再点此按钮切换（不会新建登录页）");
   }
 
   const tab = await focusTeamsTab(tabId);
