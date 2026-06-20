@@ -108,7 +108,9 @@
     const res = await sendMessage("SAVE_CONFIG", { config: partial });
     config = normalizeConfig(res.config);
     renderPanel();
-    const threads = window.TeamsNotifyUtils?.collectAllThreads?.(config.threadCatalog) || [];
+    const threads = window.TeamsNotifyUtils?.collectAllThreadsAsync
+      ? await window.TeamsNotifyUtils.collectAllThreadsAsync(config.threadCatalog, { scrollList: false })
+      : window.TeamsNotifyUtils?.collectAllThreads?.(config.threadCatalog) || [];
     await sendMessage("TEAMS_SYNC_CATALOG", { threads });
     lastCatalogSyncAt = Date.now();
   }
@@ -212,7 +214,12 @@
     const body = document.getElementById("tn-body");
     if (!body || !window.TeamsNotifyUtils) return;
 
-    const threads = window.TeamsNotifyUtils.collectAllThreads(config.threadCatalog);
+    body.innerHTML = `<div class="tn-empty">正在加载会话列表…</div>`;
+
+    const threads = await window.TeamsNotifyUtils.collectAllThreadsAsync(config.threadCatalog, {
+      scrollList: true,
+      forceIdb: true,
+    });
     scheduleCatalogSync(threads);
 
     const notifySet = new Set(config.notifyThreadIds || []);

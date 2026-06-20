@@ -6,6 +6,7 @@ let filterEnabled = true;
 
 registerMonitorTab();
 loadSettings().finally(() => {
+  window.TeamsNotifyIdb?.refreshIdbThreads?.(true).catch(() => {});
   startRealtimeWatch();
   scanAndReport().catch(() => {});
 });
@@ -119,7 +120,9 @@ async function scanAndReport() {
   if (!isMonitorTab || !filterEnabled) return;
   const utils = window.TeamsNotifyUtils;
   if (!utils) return;
-  const threads = utils.collectAllThreads(cachedCatalog);
+  const threads = utils.collectAllThreadsAsync
+    ? await utils.collectAllThreadsAsync(cachedCatalog, { scrollList: false })
+    : utils.collectAllThreads(cachedCatalog);
   await sendMessage("TEAMS_UNREAD_SNAPSHOT", { threads });
 }
 

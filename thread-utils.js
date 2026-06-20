@@ -1,13 +1,18 @@
-/** 共享：从 Teams 聊天列表解析会话 */
+/** 共享：从 Teams 聊天列表解析会话（DOM + IndexedDB） */
 (function () {
   const SKIP_TITLE =
-    /^(activity|calendar|calls|files|apps|discover|copilot|mentions|saved|teams|chat|chats|unread|more)$/i;
+    /^(activity|calendar|calls|files|apps|discover|copilot|mentions|saved|teams|chat|chats|unread|more|recent)$/i;
 
   const CHAT_ITEM_SELECTORS = [
     '[role="treeitem"]',
     '[role="listitem"]',
+    '[role="option"]',
+    '[role="row"]',
     '[data-tid*="chat-list-item"]',
     '[data-tid*="thread-list-item"]',
+    '[data-tid*="recent-chat"]',
+    '[data-conversation-id]',
+    '[data-thread-id]',
   ];
 
   function normalizeTitle(title) {
@@ -27,11 +32,12 @@
       '[data-tid*="chat-title"]',
       '[data-tid*="title"]',
       '[class*="title"]',
+      "span[dir]",
     ];
     for (const selector of titleSelectors) {
       const el = node.querySelector(selector);
       const text = normalizeTitle(el?.textContent);
-      if (text && !SKIP_TITLE.test(text)) return text;
+      if (text && !SKIP_TITLE.test(text) && text.length < 100) return text;
     }
 
     const ariaLabel = normalizeTitle(node.getAttribute("aria-label"));
@@ -44,6 +50,7 @@
       .replace(/has unread messages.*/i, "")
       .replace(/private chat with /i, "")
       .replace(/group chat with /i, "")
+      .replace(/chat with /i, "")
       .trim();
     const first = cleaned.split(/,|，|·/)[0].trim();
     return normalizeTitle(first);
@@ -127,7 +134,6 @@
       /conversationId=([^&#]+)/i,
       /threadId=([^&#]+)/i,
       /\/l\/chat\/([^/?#]+)/i,
-      /\/v2\/[^/?#]*\/([^/?#]+)/i,
     ];
     for (const pattern of patterns) {
       const match = text.match(pattern);
@@ -138,7 +144,7 @@
 
   function extractThreadId(node, title, chatType) {
     let current = node;
-    for (let depth = 0; depth < 4 && current; depth++) {
+    for (let depth = 0; depth < 6 && current; depth++) {
       const attrs = [
         current.getAttribute("data-conversation-id"),
         current.getAttribute("data-thread-id"),
@@ -159,28 +165,72 @@
       if (fromHref) return fromHref;
     }
 
-    const fromAria = extractIdFromHref(node.getAttribute("aria-describedby") || "");
-    if (fromAria) return fromAria;
-
     return `${chatType}:${normalizeTitleKey(title)}`;
+  }
+
+  function isNavItem(title, aria) {
+    return (
+      SKIP_TITLE.test(title) ||
+      /activity|calendar|calls|files|apps|copilot|mentions|saved|discover|invite|settings/i.test(aria)
+    );
   }
 
   function isChatItem(node) {
     if (!(node instanceof Element)) return false;
-    const role = node.getAttribute("role");
+
+    const role = node.getAttribute("role") || "";
     const tid = node.getAttribute("data-tid") || "";
-    const isRoleMatch = role === "treeitem" || role === "listitem";
-    const isTidMatch = /chat-list-item|thread-list-item/i.test(tid);
-    if (!isRoleMatch && !isTidMatch) return false;
+    const hasConvAttr =
+      node.hasAttribute("data-conversation-id") ||
+      node.hasAttribute("data-thread-id") ||
+      node.hasAttribute("data-chat-id");
+
+    const isRoleMatch = ["treeitem", "listitem", "option", "row"].includes(role);
+    const isTidMatch = /chat-list-item|thread-list-item|recent-chat|chat-list/i.test(tid);
+
+    if (!isRoleMatch && !isTidMatch && !hasConvAttr) return false;
 
     const title = extractThreadTitle(node);
-    if (!title || SKIP_TITLE.test(title)) return false;
-    if (title.length > 120) return false;
-
     const aria = (node.getAttribute("aria-label") || "").toLowerCase();
-    if (/activity|calendar|calls|files|apps|copilot|mentions|saved/i.test(aria) && !title) return false;
+
+    if (isNavItem(title, aria)) return false;
+    if (!title && !hasConvAttr) return false;
+    if (title && title.length > 120) return false;
 
     return true;
+  }
+
+  function findScrollableList(root) {
+    let el = root;
+    while (el) {
+      if (el.scrollHeight > el.clientHeight + 20) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  async function scrollChatListToLoadAll() {
+    const roots = document.querySelectorAll(
+      '[data-tid*="chat-list"], [aria-label*="Chat list" i], [aria-label*="聊天" i], [data-tid*="left-rail"]'
+    );
+    const scrollers = new Set();
+    for (const root of roots) {
+      const scroller = findScrollableList(root);
+      if (scroller) scrollers.add(scroller);
+    }
+
+    for (const el of scrollers) {
+      const step = Math.max(120, Math.floor(el.clientHeight * 0.75));
+      let lastTop = -1;
+      for (let i = 0; i < 40; i++) {
+        el.scrollTop = Math.min(el.scrollTop + step, el.scrollHeight);
+        await new Promise((r) => setTimeout(r, 60));
+        if (el.scrollTop === lastTop) break;
+        lastTop = el.scrollTop;
+      }
+      el.scrollTop = 0;
+      await new Promise((r) => setTimeout(r, 80));
+    }
   }
 
   function getChatTreeItems() {
@@ -189,13 +239,14 @@
     const allSelectors = [
       '[data-tid="chat-list"]',
       '[data-tid*="chat-list"]',
+      '[data-tid*="recent-chats"]',
       '[aria-label*="Chat list" i]',
-      '[aria-label*="聊天列表" i]',
-      '[data-tid*="left-rail"] [role="tree"]',
-      '[data-tid*="left-rail"] [role="list"]',
+      '[aria-label*="聊天" i]',
+      '[data-tid*="left-rail"]',
       "#chat-list",
       '[role="tree"]',
       '[role="list"]',
+      '[role="listbox"]',
     ];
 
     for (const selector of allSelectors) {
@@ -252,17 +303,67 @@
       title,
       chatType,
       unreadCount: extractUnreadCount(node),
+      source: "dom",
     };
   }
 
-  function collectAllThreads(catalog) {
+  function mergeThreads(domThreads, idbThreads, catalog) {
+    const map = new Map();
+
+    for (const t of idbThreads || []) {
+      if (!t?.id) continue;
+      map.set(t.id, {
+        ...t,
+        chatType: resolveChatType(t, catalog),
+      });
+    }
+
+    for (const t of domThreads || []) {
+      if (!t?.id) continue;
+      const prev = map.get(t.id);
+      if (!prev) {
+        map.set(t.id, t);
+        continue;
+      }
+      map.set(t.id, {
+        ...prev,
+        title: t.title || prev.title,
+        unreadCount: Math.max(t.unreadCount || 0, prev.unreadCount || 0),
+        chatType: resolveChatType(
+          { ...prev, chatType: t.chatType !== "group" ? t.chatType : prev.chatType },
+          catalog
+        ),
+        source: "merged",
+      });
+    }
+
+    return [...map.values()].sort((a, b) => a.title.localeCompare(b.title, "zh"));
+  }
+
+  function collectAllThreadsFromDom(catalog) {
     const map = new Map();
     for (const node of getChatTreeItems()) {
       const thread = threadFromNode(node, catalog);
       if (!thread) continue;
       map.set(thread.id, thread);
     }
-    return [...map.values()].sort((a, b) => a.title.localeCompare(b.title, "zh"));
+    return [...map.values()];
+  }
+
+  function collectAllThreads(catalog) {
+    const dom = collectAllThreadsFromDom(catalog);
+    const idb = window.TeamsNotifyIdb?.getCachedIdbThreads?.() || [];
+    return mergeThreads(dom, idb, catalog);
+  }
+
+  async function collectAllThreadsAsync(catalog, options = {}) {
+    if (options.scrollList !== false) {
+      await scrollChatListToLoadAll();
+    }
+    if (window.TeamsNotifyIdb?.refreshIdbThreads) {
+      await window.TeamsNotifyIdb.refreshIdbThreads(!!options.forceIdb);
+    }
+    return collectAllThreads(catalog);
   }
 
   function collectUnreadThreads(catalog) {
@@ -271,7 +372,9 @@
 
   window.TeamsNotifyUtils = {
     collectAllThreads,
+    collectAllThreadsAsync,
     collectUnreadThreads,
+    scrollChatListToLoadAll,
     detectChatType,
     normalizeTitleKey,
   };

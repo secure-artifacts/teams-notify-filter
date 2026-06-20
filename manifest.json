@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Teams 通知过滤器",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "在 Teams 网页版管理通知文件夹：支持 teams.microsoft.com 与 teams.live.com，私聊始终提醒。",
   "permissions": ["storage", "notifications", "tabs", "scripting", "alarms"],
   "host_permissions": ["https://teams.microsoft.com/*", "https://teams.live.com/*"],
@@ -20,7 +20,7 @@
     },
     {
       "matches": ["https://teams.microsoft.com/*", "https://teams.live.com/*"],
-      "js": ["thread-utils.js", "teams-panel.js", "content.js"],
+      "js": ["teams-idb.js", "thread-utils.js", "teams-panel.js", "content.js"],
       "css": ["teams-panel.css"],
       "run_at": "document_idle"
     }

@@ -20,7 +20,7 @@ jobs:
       - name: Package Extension
         run: |
           mkdir -p dist
-          cp manifest.json background.js content.js thread-utils.js teams-panel.js teams-panel.css \
+          cp manifest.json background.js content.js thread-utils.js teams-idb.js teams-panel.js teams-panel.css \
             notification-guard.js notification-guard-page.js \
             popup.html popup.css popup.js dist/
           cd dist
