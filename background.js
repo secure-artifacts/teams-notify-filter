@@ -7,7 +7,6 @@ const DEFAULT_CONFIG = {
 
 const THREAD_STATE_KEY = "threadStateMap";
 const TEAMS_MONITOR_TAB_KEY = "teamsMonitorTabId";
-const TEAMS_HOME_URL = "https://teams.microsoft.com/";
 const MAX_CATALOG_ENTRIES = 500;
 const STATE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const HEARTBEAT_ALARM = "teams-notify-heartbeat";
@@ -283,14 +282,41 @@ function isTeamsUrl(url) {
   }
 }
 
-async function findAllTeamsTabs() {
-  const tabs = await chrome.tabs.query({ url: ["*://teams.microsoft.com/*"] });
+function isTeamsLoginUrl(url) {
+  if (!isLoginUrl(url)) return false;
+  const lower = String(url || "").toLowerCase();
+  return (
+    lower.includes("teams.microsoft.com") ||
+    lower.includes("teams.live.com") ||
+    lower.includes("microsoftteams") ||
+    lower.includes("1fec8e78-b456-4f79-90fe-575705da6696")
+  );
+}
+
+function isTeamsRelatedUrl(url) {
+  return isTeamsUrl(url) || isTeamsLoginUrl(url);
+}
+
+async function findAllTeamsRelatedTabs() {
+  const tabs = await chrome.tabs.query({});
   return tabs
-    .filter((tab) => tab.id && isTeamsUrl(tab.url))
+    .filter((tab) => tab.id && tab.url && isTeamsRelatedUrl(tab.url))
     .sort((a, b) => {
-      const score = (t) => (t.active ? 4 : 0) + (t.url?.includes("/v2") || t.url?.includes("/dl/launcher") ? 2 : 0);
+      const score = (t) => {
+        let s = 0;
+        if (t.active) s += 8;
+        if (isTeamsUrl(t.url)) s += 16;
+        if (t.url?.includes("/v2") || t.url?.includes("/dl/launcher")) s += 4;
+        if (isTeamsLoginUrl(t.url)) s += 1;
+        return s;
+      };
       return score(b) - score(a);
     });
+}
+
+async function findAllTeamsTabs() {
+  const tabs = await findAllTeamsRelatedTabs();
+  return tabs.filter((tab) => isTeamsUrl(tab.url));
 }
 
 async function resolveTeamsMonitorTab() {
@@ -299,19 +325,29 @@ async function resolveTeamsMonitorTab() {
   if (cachedId) {
     try {
       const tab = await chrome.tabs.get(cachedId);
-      if (tab?.id && isTeamsUrl(tab.url)) return tab.id;
+      if (tab?.id && tab.url && isTeamsRelatedUrl(tab.url)) return tab.id;
     } catch {
       await chrome.storage.local.remove(TEAMS_MONITOR_TAB_KEY);
     }
   }
 
-  const teamsTabs = await findAllTeamsTabs();
+  const teamsTabs = await findAllTeamsRelatedTabs();
   if (teamsTabs.length) {
     const match = teamsTabs[0];
     await chrome.storage.local.set({ [TEAMS_MONITOR_TAB_KEY]: match.id });
     return match.id;
   }
   return null;
+}
+
+async function focusTeamsTab(tabId) {
+  const tab = await chrome.tabs.get(tabId);
+  if (tab.discarded) {
+    await chrome.tabs.reload(tabId);
+  }
+  await chrome.windows.update(tab.windowId, { focused: true });
+  await chrome.tabs.update(tabId, { active: true });
+  return tab;
 }
 
 async function ensureTeamsMonitorTab(createIfMissing) {
@@ -329,9 +365,7 @@ async function ensureTeamsMonitorTab(createIfMissing) {
       const again = await resolveTeamsMonitorTab();
       if (again) return again;
 
-      const tab = await chrome.tabs.create({ url: TEAMS_HOME_URL, active: false });
-      registerMonitorTabId(tab.id);
-      return tab.id;
+      throw new Error("未找到已打开的 Teams 标签页，请手动在 Chrome 打开 teams.microsoft.com");
     } finally {
       ensureTabPromise = null;
     }
@@ -366,16 +400,24 @@ function sleep(ms) {
 }
 
 async function openTeamsTab(active = true) {
-  const hadTab = !!(await resolveTeamsMonitorTab());
   let tabId = await resolveTeamsMonitorTab();
-
   if (!tabId) {
-    tabId = await ensureTeamsMonitorTab(true);
+    throw new Error("请先在 Chrome 打开 teams.microsoft.com 并登录，再点此按钮切换过去（不会新建登录页）");
   }
 
-  await chrome.tabs.update(tabId, { active });
-  await waitForPanelMessage(tabId);
-  return { tabId, reused: hadTab };
+  const tab = await focusTeamsTab(tabId);
+  const onLoginPage = isTeamsLoginUrl(tab.url);
+
+  if (active && isTeamsUrl(tab.url)) {
+    await waitForPanelMessage(tabId);
+  }
+
+  return {
+    tabId,
+    reused: true,
+    onLoginPage,
+    needsManualLogin: onLoginPage,
+  };
 }
 
 async function injectNotificationGuard(tabId) {
@@ -520,6 +562,7 @@ async function getMonitorStatus() {
     hasTab: true,
     tabActive: !!tab.active,
     tabUrl: tab.url || "",
+    onLoginPage: isTeamsLoginUrl(tab.url),
     notifyCount: config.notifyThreadIds.length,
   };
 }

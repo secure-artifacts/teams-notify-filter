@@ -21,8 +21,12 @@ saveBtn.addEventListener("click", async () => {
 openTeamsBtn.addEventListener("click", async () => {
   openTeamsBtn.disabled = true;
   try {
-    await sendMessage("OPEN_TEAMS_TAB", { active: true });
-    setStatus("已切换到 Teams 标签页，管理面板会自动打开", "ok");
+    const res = await sendMessage("OPEN_TEAMS_TAB", { active: true });
+    if (res.needsManualLogin || res.onLoginPage) {
+      setStatus("已切换到 Teams 登录标签，请在该页完成登录（不会另开新页）", "ok");
+    } else {
+      setStatus("已切换到 Teams 标签页，管理面板会自动打开", "ok");
+    }
     await refreshMonitorStatus();
   } catch (error) {
     setStatus(error.message || "打开失败", "err");
@@ -48,7 +52,11 @@ async function refreshMonitorStatus() {
       return;
     }
     if (!res.hasTab) {
-      monitorStatusEl.textContent = "请先在浏览器打开 Teams 页面，再点此按钮切换过去";
+      monitorStatusEl.textContent = "请先在 Chrome 打开 teams.microsoft.com 并登录，再点此按钮切换";
+      return;
+    }
+    if (res.onLoginPage) {
+      monitorStatusEl.textContent = "检测到 Teams 登录页 · 请在该标签完成登录，勿重复新开";
       return;
     }
     monitorStatusEl.textContent = res.tabActive
