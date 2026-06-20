@@ -1,0 +1,195 @@
+#teams-notify-toggle {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483646;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 999px;
+  background: #6264a7;
+  color: #fff;
+  font: 600 13px/1 system-ui, "Segoe UI", sans-serif;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+#teams-notify-toggle:hover {
+  background: #464775;
+}
+
+#teams-notify-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 64px;
+  z-index: 2147483646;
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(72vh, 640px);
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  color: #242424;
+  border: 1px solid #d1d1d1;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  font: 13px/1.45 system-ui, "Segoe UI", sans-serif;
+}
+
+#teams-notify-panel.hidden {
+  display: none;
+}
+
+#teams-notify-panel .tn-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid #edebe9;
+  background: #faf9f8;
+  border-radius: 12px 12px 0 0;
+}
+
+#teams-notify-panel .tn-header h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+#teams-notify-panel .tn-close {
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  cursor: pointer;
+  color: #605e5c;
+}
+
+#teams-notify-panel .tn-body {
+  overflow-y: auto;
+  padding: 10px 12px 12px;
+}
+
+#teams-notify-panel .tn-section {
+  margin-bottom: 12px;
+}
+
+#teams-notify-panel .tn-section-title {
+  font-weight: 700;
+  font-size: 12px;
+  color: #323130;
+  margin: 0 0 6px;
+}
+
+#teams-notify-panel .tn-hint {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: #605e5c;
+}
+
+#teams-notify-panel .tn-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid #c8c6c4;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  font: inherit;
+}
+
+#teams-notify-panel .tn-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 48px;
+  padding: 6px;
+  border-radius: 8px;
+  background: #faf9f8;
+}
+
+#teams-notify-panel .tn-list.notify-zone {
+  background: #f3f2ff;
+  border: 1px dashed #6264a7;
+}
+
+#teams-notify-panel .tn-list.silent-zone {
+  background: #faf9f8;
+  border: 1px dashed #c8c6c4;
+}
+
+#teams-notify-panel .tn-list.drag-over {
+  outline: 2px solid #6264a7;
+  outline-offset: 2px;
+}
+
+#teams-notify-panel .tn-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid #edebe9;
+  border-radius: 8px;
+  cursor: grab;
+}
+
+#teams-notify-panel .tn-item.private {
+  cursor: default;
+  background: #f0f9ff;
+  border-color: #bde0fe;
+}
+
+#teams-notify-panel .tn-item-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#teams-notify-panel .tn-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #edebe9;
+  color: #323130;
+}
+
+#teams-notify-panel .tn-badge.private {
+  background: #cce5ff;
+  color: #004578;
+}
+
+#teams-notify-panel .tn-badge.unread {
+  background: #fde7e9;
+  color: #a4262c;
+}
+
+#teams-notify-panel .tn-btn {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  background: #6264a7;
+  color: #fff;
+}
+
+#teams-notify-panel .tn-btn.secondary {
+  background: #edebe9;
+  color: #323130;
+}
+
+#teams-notify-panel .tn-empty {
+  padding: 12px 8px;
+  text-align: center;
+  color: #605e5c;
+  font-size: 12px;
+}
+
+#teams-notify-panel .tn-enabled-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 10px;
+  font-weight: 600;
+}

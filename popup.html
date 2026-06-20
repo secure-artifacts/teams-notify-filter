@@ -15,25 +15,21 @@
     </label>
 
     <section class="card">
-      <label for="allowedGroups">允许通知的群组名（每行一个）</label>
-      <textarea
-        id="allowedGroups"
-        rows="7"
-        placeholder="例如：
-项目A群
-研发同步群"
-      ></textarea>
-      <p class="hint">规则：私人消息始终通知；群组消息只有名称匹配上面列表才通知。</p>
+      <p class="hint">
+        请在 Teams 页面右下角点击 <strong>「通知管理」</strong>，把需要提醒的群组移入
+        <strong>通知文件夹</strong>。私人消息始终通知，其他群组默认不通知。
+      </p>
+      <p id="notifyCount" class="meta">通知文件夹：0 个群组</p>
     </section>
 
-    <button id="openTeamsBtn" type="button" class="secondary">打开 Teams 后台监听页</button>
+    <button id="openTeamsBtn" type="button" class="secondary">打开 Teams 并显示管理面板</button>
     <p id="monitorStatus" class="meta">正在检查监听状态…</p>
 
     <button id="saveBtn" type="button">保存设置</button>
     <p id="status" class="status" hidden></p>
 
     <footer>
-      <p>启用后会在后台保持一个 Teams 标签页（可最小化）。有新消息时立即检测并提醒，不做定时轮询。</p>
+      <p>插件会自动拦截 Teams 网页原生通知，并按你的规则由扩展统一提醒。</p>
     </footer>
 
     <script src="popup.js"></script>

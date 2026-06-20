@@ -1,5 +1,5 @@
 const enabledEl = document.getElementById("enabled");
-const allowedGroupsEl = document.getElementById("allowedGroups");
+const notifyCountEl = document.getElementById("notifyCount");
 const openTeamsBtn = document.getElementById("openTeamsBtn");
 const monitorStatusEl = document.getElementById("monitorStatus");
 const saveBtn = document.getElementById("saveBtn");
@@ -10,8 +10,7 @@ init().catch((error) => setStatus(error.message || "初始化失败", "err"));
 saveBtn.addEventListener("click", async () => {
   try {
     const enabled = !!enabledEl.checked;
-    const allowedGroups = parseGroupLines(allowedGroupsEl.value);
-    await sendMessage("SAVE_CONFIG", { config: { enabled, allowedGroups } });
+    await sendMessage("SAVE_CONFIG", { config: { enabled } });
     setStatus("保存成功", "ok");
     await refreshMonitorStatus();
   } catch (error) {
@@ -20,12 +19,15 @@ saveBtn.addEventListener("click", async () => {
 });
 
 openTeamsBtn.addEventListener("click", async () => {
+  openTeamsBtn.disabled = true;
   try {
     await sendMessage("OPEN_TEAMS_TAB", { active: true });
-    setStatus("已打开 Teams 监听页", "ok");
+    setStatus("已切换到 Teams 标签页，管理面板会自动打开", "ok");
     await refreshMonitorStatus();
   } catch (error) {
     setStatus(error.message || "打开失败", "err");
+  } finally {
+    openTeamsBtn.disabled = false;
   }
 });
 
@@ -33,41 +35,28 @@ async function init() {
   const res = await sendMessage("GET_CONFIG");
   const config = res.config || {};
   enabledEl.checked = !!config.enabled;
-  allowedGroupsEl.value = (config.allowedGroups || []).join("\n");
+  notifyCountEl.textContent = `通知文件夹：${(config.notifyThreadIds || []).length} 个群组`;
   await refreshMonitorStatus();
 }
 
 async function refreshMonitorStatus() {
   try {
     const res = await sendMessage("GET_MONITOR_STATUS");
+    notifyCountEl.textContent = `通知文件夹：${res.notifyCount || 0} 个群组`;
     if (!res.enabled) {
       monitorStatusEl.textContent = "插件已关闭";
       return;
     }
     if (!res.hasTab) {
-      monitorStatusEl.textContent = "后台监听页未就绪，保存设置后会自动创建";
+      monitorStatusEl.textContent = "请先在浏览器打开 Teams 页面，再点此按钮切换过去";
       return;
     }
     monitorStatusEl.textContent = res.tabActive
-      ? "实时监听中（当前正在 Teams 页）"
-      : "实时监听中（可切换到其他网页，有新消息立即提醒）";
+      ? "实时监听中 · 在 Teams 页管理通知文件夹"
+      : "实时监听中 · 可切到其他网页";
   } catch (error) {
     monitorStatusEl.textContent = error.message || "无法获取监听状态";
   }
-}
-
-function parseGroupLines(text) {
-  const seen = new Set();
-  const result = [];
-  for (const rawLine of String(text || "").split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const key = line.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(line);
-  }
-  return result;
 }
 
 function setStatus(text, type) {
