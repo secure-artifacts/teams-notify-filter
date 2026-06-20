@@ -20,8 +20,8 @@ jobs:
       - name: Package Extension
         run: |
           mkdir -p dist
-          cp manifest.json background.js content.js thread-utils.js teams-idb.js teams-panel.js teams-panel.css \
-            notification-guard.js notification-guard-page.js \
+          cp manifest.json background.js content.js thread-utils.js teams-idb.js teams-nav.js \
+            teams-sidebar.js teams-sidebar.css notification-guard.js notification-guard-page.js \
             popup.html popup.css popup.js dist/
           cd dist
           zip -r ../teams-notify-filter-${{ github.ref_name }}.zip .

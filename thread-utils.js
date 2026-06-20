@@ -353,7 +353,8 @@
   function collectAllThreads(catalog) {
     const dom = collectAllThreadsFromDom(catalog);
     const idb = window.TeamsNotifyIdb?.getCachedIdbThreads?.() || [];
-    return mergeThreads(dom, idb, catalog);
+    const manual = window.__teamsNotifyManualThreads || [];
+    return mergeThreads(dom, [...idb, ...manual], catalog);
   }
 
   async function collectAllThreadsAsync(catalog, options = {}) {

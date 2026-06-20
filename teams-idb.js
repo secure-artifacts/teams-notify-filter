@@ -1,16 +1,13 @@
-/** 从 Teams 客户端 IndexedDB 读取完整会话列表（teams.live.com / v2 更可靠） */
+/** 从 Teams 客户端 IndexedDB / sessionStorage 读取完整会话列表 */
 (function () {
   let cachedThreads = [];
   let cachedAt = 0;
-  const CACHE_MS = 15000;
+  const CACHE_MS = 10000;
 
-  async function findTeamsDbs(prefix) {
+  async function allDatabases() {
     if (typeof indexedDB.databases !== "function") return [];
     try {
-      const all = await indexedDB.databases();
-      return all
-        .filter((d) => d.name && d.name.startsWith(`Teams:${prefix}:`) && d.version)
-        .sort((a, b) => a.name.localeCompare(b.name));
+      return await indexedDB.databases();
     } catch {
       return [];
     }
@@ -53,7 +50,7 @@
         if (typeof v === "string" && v.trim()) return v.trim();
       }
     }
-    const topic = String(record?.threadProperties?.topic || "").trim();
+    const topic = String(record?.threadProperties?.topic || record?.topic || "").trim();
     if (topic) return topic;
     const lastName =
       record?.lastMessage?.imdisplayname?.trim() ||
@@ -69,15 +66,9 @@
     if (id.includes("@oneToOne.skype") || /one.?to.?one|direct|private/i.test(threadType)) {
       return "private";
     }
-
-    if (
-      id.includes("@thread") ||
-      id.includes("@meet") ||
-      /group|space|thread|meet|channel|chat/i.test(threadType)
-    ) {
+    if (id.includes("@thread") || id.includes("@meet") || /group|space|thread|meet|channel/i.test(threadType)) {
       return "group";
     }
-
     const title = titleFromRecord(record);
     if (title && /[,，]| and | \+ \d+/i.test(title)) return "group";
     if (title && title.length <= 40) return "private";
@@ -86,15 +77,14 @@
 
   function unreadFromRecord(record) {
     if (record?.threadProperties?.isRead === false) return 1;
-    if (record?.threadProperties?.isRead === true) return 0;
     return 0;
   }
 
-  function recordToThread(record) {
-    const id = String(record?.id || "").trim();
-    if (!id) return null;
-    const title = titleFromRecord(record) || id.split("@")[0] || "Teams 会话";
+  function recordToThread(record, fallbackTitle) {
+    const id = String(record?.id || record?.conversationId || "").trim();
+    if (!id || id.length < 4) return null;
     if (record?.threadProperties?.hidden) return null;
+    const title = titleFromRecord(record) || fallbackTitle || id.split("@")[0] || "Teams 会话";
     return {
       id,
       title,
@@ -104,12 +94,43 @@
     };
   }
 
-  async function readConversationList() {
-    const dbs = await findTeamsDbs("conversation-manager");
-    if (!dbs.length) return [];
+  function readSelfUuid() {
+    try {
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        const m = key?.match(/^tmp\.session\.(.+)-mainWindowNavHistory$/);
+        if (m?.[1]) return m[1];
+      }
+    } catch {
+      /* ignore */
+    }
+    return "";
+  }
 
+  function readActiveConversationId() {
+    const selfUuid = readSelfUuid();
+    if (!selfUuid) return null;
+    try {
+      const histRaw = sessionStorage.getItem(`tmp.session.${selfUuid}-mainWindowNavHistory`);
+      const indexRaw = sessionStorage.getItem(`tmp.session.${selfUuid}-mainWindowNavHistoryIndex`);
+      if (!histRaw || !indexRaw) return null;
+      const history = JSON.parse(histRaw);
+      const index = JSON.parse(indexRaw);
+      const i = typeof index.windowHistoryIndex === "number" ? index.windowHistoryIndex : 0;
+      const entry = history[i]?.activeEntities?.mainEntity;
+      if (entry?.action === "view" && typeof entry.id === "string") return entry.id;
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }
+
+  async function readFromConversationManager() {
     const merged = new Map();
-    for (const meta of dbs) {
+    const all = await allDatabases();
+    const targets = all.filter((d) => d.name && d.name.startsWith("Teams:conversation-manager:"));
+
+    for (const meta of targets) {
       const db = await openDbRO(meta.name);
       if (!db) continue;
       try {
@@ -129,10 +150,94 @@
         }
       }
     }
+    return merged;
+  }
 
-    return [...merged.values()]
-      .map(recordToThread)
-      .filter(Boolean);
+  async function readFromFolderManager() {
+    const titles = new Map();
+    const all = await allDatabases();
+    const targets = all.filter((d) => d.name && d.name.startsWith("Teams:conversation-folder-manager:"));
+
+    for (const meta of targets) {
+      const db = await openDbRO(meta.name);
+      if (!db) continue;
+      try {
+        const folders = await readAll(db, "folders");
+        for (const folder of folders) {
+          for (const conv of folder?.conversations || []) {
+            const id = String(conv?.id || "").trim();
+            if (!id) continue;
+            titles.set(id, {
+              id,
+              threadProperties: { threadType: conv.threadType || conv.itemType || "group" },
+              type: conv.threadType || conv.itemType,
+            });
+          }
+        }
+      } finally {
+        try {
+          db.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    return titles;
+  }
+
+  async function bruteForceScan() {
+    const merged = new Map();
+    const all = await allDatabases();
+
+    for (const meta of all) {
+      if (!meta.name || !/teams/i.test(meta.name)) continue;
+      const db = await openDbRO(meta.name);
+      if (!db) continue;
+      try {
+        for (const storeName of db.objectStoreNames) {
+          if (!/conversation|chat|thread|folder/i.test(storeName)) continue;
+          const rows = await readAll(db, storeName);
+          for (const row of rows) {
+            if (Array.isArray(row?.conversations)) {
+              for (const c of row.conversations) {
+                const t = recordToThread(c);
+                if (t) merged.set(t.id, t);
+              }
+              continue;
+            }
+            const t = recordToThread(row);
+            if (t && t.id.includes("@")) merged.set(t.id, t);
+          }
+        }
+      } finally {
+        try {
+          db.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    return merged;
+  }
+
+  async function readConversationList() {
+    const records = await readFromConversationManager();
+    const folderHints = await readFromFolderManager();
+
+    for (const [id, hint] of folderHints) {
+      if (!records.has(id)) records.set(id, hint);
+    }
+
+    let threads = [...records.values()].map((r) => recordToThread(r)).filter(Boolean);
+
+    if (threads.length < 2) {
+      const brute = await bruteForceScan();
+      for (const [id, t] of brute) {
+        if (!threads.some((x) => x.id === id)) threads.push(t);
+      }
+    }
+
+    return threads;
   }
 
   async function refreshIdbThreads(force) {
@@ -153,5 +258,6 @@
     refreshIdbThreads,
     getCachedIdbThreads,
     readConversationList,
+    readActiveConversationId,
   };
 })();

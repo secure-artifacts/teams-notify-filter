@@ -2,6 +2,7 @@ const DEFAULT_CONFIG = {
   enabled: true,
   notifyThreadIds: [],
   notifyThreadTitles: [],
+  manualThreads: [],
   threadCatalog: {},
 };
 
@@ -156,6 +157,7 @@ async function getConfig() {
   const normalized = { ...DEFAULT_CONFIG, ...(config || {}) };
   normalized.notifyThreadIds = dedupeIds(normalized.notifyThreadIds || []);
   normalized.notifyThreadTitles = dedupeTitles(normalized.notifyThreadTitles || []);
+  normalized.manualThreads = Array.isArray(normalized.manualThreads) ? normalized.manualThreads : [];
   normalized.threadCatalog = normalized.threadCatalog || {};
   normalized.enabled = Boolean(normalized.enabled);
   return normalized;
@@ -166,6 +168,7 @@ async function saveConfig(partialConfig) {
   const next = { ...current, ...partialConfig };
   next.notifyThreadIds = dedupeIds(next.notifyThreadIds || []);
   next.notifyThreadTitles = dedupeTitles(next.notifyThreadTitles || []);
+  next.manualThreads = Array.isArray(next.manualThreads) ? next.manualThreads : [];
   next.threadCatalog = next.threadCatalog || {};
   next.enabled = Boolean(next.enabled);
   await chrome.storage.local.set({ config: next });
@@ -396,7 +399,7 @@ async function setTabUndiscardable(tabId) {
 async function waitForPanelMessage(tabId, maxAttempts = 8) {
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      const res = await chrome.tabs.sendMessage(tabId, { type: "TEAMS_PANEL_REFRESH" });
+      const res = await chrome.tabs.sendMessage(tabId, { type: "TEAMS_SIDEBAR_REFRESH" });
       if (res?.ok) return true;
     } catch {
       /* content script loading */
@@ -421,6 +424,11 @@ async function openTeamsTab(active = true) {
 
   if (active && isTeamsUrl(tab.url)) {
     await waitForPanelMessage(tabId);
+    try {
+      await chrome.tabs.sendMessage(tabId, { type: "TEAMS_SIDEBAR_REFRESH" });
+    } catch {
+      /* ignore */
+    }
   }
 
   return {
