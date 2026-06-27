@@ -1,46 +1,45 @@
-# Teams 通知过滤器
+# Teams 通知设置
+
+在 Teams 网页（含 `teams.live.com/v2` 个人版）过滤群组通知，私信始终放行；支持聊天内群链接 / 邀请链接网页直达。
 
 ## 功能
-- **私人消息始终通知**
-- **只有「通知文件夹」里的群组才会提醒**
-- 其他群组默认静默
-- 在 Teams 页面右下角 **「通知管理」** 面板里直接操作，无需手打群名
 
-## 支持的 Teams 网页版
-- **个人账号**：`https://teams.live.com/v2/`（常见）
-- **工作/学校账号**：`https://teams.microsoft.com/`
-
-## 安装（Chrome / Brave / Edge 等 Chromium 浏览器）
-1. 打开 `brave://extensions/`（Chrome 为 `chrome://extensions/`）
-2. 开启「开发者模式」
-3. 加载已解压的扩展程序，选择本项目文件夹
+- **通知过滤**：替换页面内 `window.Notification`，按白名单/黑名单 + 关键词控制群通知
+- **群组列表**：从左侧聊天列表 DOM + IndexedDB 读取
+- **链接直达**：拦截聊天内 `/l/invite/`、群链接，解析后在网页内打开（不唤起桌面版）
+- **隐私**：邀请链接缓存仅存本机，可关闭缓存或一键清除
 
 ## 使用
-1. 重新加载插件
-2. 打开你使用的 Teams 地址并登录（`teams.live.com` 或 `teams.microsoft.com`）
-3. 点击右下角 **「通知管理」**
-4. 在 **「其他群组」** 里点击 **「移入通知」**，或拖拽到 **「通知文件夹」**
-5. 私人消息在顶部单独显示，始终会通知
 
-## Brave 浏览器必读
+1. 安装扩展，打开 Teams 并登录
+2. 点击工具栏图标展开 **Teams 通知设置**
+3. 选择工作模式，添加要放行/屏蔽的群组
+4. 点击聊天里的群链接或邀请链接 → 自动在网页内跳转
 
-Brave 的 **Shields（盾牌）** 会拦截 Microsoft 登录 Cookie，导致反复弹出登录页。
+### 白名单模式说明
 
-**请按以下步骤设置（只需一次）：**
+默认 **「只提醒列表中的群」**：若列表为空，**所有群通知都会被屏蔽**，私信不受影响。请先添加群组。
 
-1. 打开 `https://teams.live.com/`（或 `teams.microsoft.com`）
-2. 点击地址栏右侧的 **狮子图标（Brave Shields）**
-3. 将 Shields 设为 **关闭**，或 Advanced → 允许 **All cookies**
-4. 对 `login.live.com` / `login.microsoftonline.com` 登录页重复同样操作
-5. 刷新页面，完成登录
+### 邀请链接打不开的兜底
 
-Cookie 允许列表建议添加：
-- `[*.]teams.live.com`
-- `[*.]teams.microsoft.com`
-- `[*.]login.live.com`
-- `[*.]login.microsoftonline.com`
+若提示「无法解析邀请链接」：
 
-## 说明
-- 需保持 Teams 网页标签页打开（可切到其他网站）
-- 插件启用时会拦截 Teams 网页原生通知，由扩展按规则统一提醒
-- 扩展不会自动新建 Teams 标签，只切换到你已打开的标签
+- 向群主索取群 ID（`19:...@thread.v2`）粘贴到面板手动添加
+- 或在面板搜索群名（需你已在该群中）
+
+## 开发
+
+```bash
+# 语法检查
+node --check teams-nav.js
+node --check teams-invite-resolver.js
+node --check teams-link-page.js
+```
+
+Chrome / Brave → `chrome://extensions` → 加载已解压的扩展程序 → 选择本目录。
+
+## 版本
+
+**5.6.6** — `teams.live.com` 邀请链接改用 v2 哈希路由 `#/l/invite/<token>?launchType=web&deeplinkId=…&laExpId=…`（参数取自真实「在网页版继续」流程），让已登录网页应用直接解析 token、加入并打开群聊；不再走 launcher，不再唤起桌面版，也不会只停在 `/v2/` 首页。邀请页脚本在 v2 应用内改为「被动模式」（仅拦截桌面版跳转），避免误扫聊天列表跳错群。
+
+**5.6.5** — 针对 `teams.live.com` 邀请链接改用 launcher 网页流（关闭 `msLaunch/directDl`），避免只刷新 Teams 首页

@@ -1,143 +1,75 @@
-let scanScheduled = false;
-let observerStarted = false;
-let cachedCatalog = {};
-let isMonitorTab = true;
-let filterEnabled = true;
+(function () {
+  const CONFIG_EVENT = "teams-filter-config";
+  const DEFAULT_CONFIG = {
+    enabled: true,
+    mode: "allow_list",
+    keywords: [],
+    threads: [],
+  };
 
-registerMonitorTab();
-loadSettings().finally(() => {
-  window.TeamsNotifyIdb?.refreshIdbThreads?.(true).catch(() => {});
-  startRealtimeWatch();
-  scanAndReport().catch(() => {});
-});
-
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes.config) {
-    cachedCatalog = changes.config.newValue?.threadCatalog || {};
-    filterEnabled = changes.config.newValue?.enabled !== false;
-    scheduleScan();
+  function pushConfig(config) {
+    window.dispatchEvent(
+      new CustomEvent(CONFIG_EVENT, {
+        detail: {
+          enabled: config.enabled !== false,
+          mode: config.mode === "block_list" ? "block_list" : "allow_list",
+          keywords: Array.isArray(config.keywords) ? config.keywords : [],
+          threads: Array.isArray(config.threads) ? config.threads : [],
+        },
+      })
+    );
   }
-});
 
-window.addEventListener("teams-notify-wake-scan", () => {
-  scanAndReport().catch(() => {});
-});
-
-window.addEventListener("pageshow", () => {
-  registerMonitorTab();
-});
-
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") {
-    registerMonitorTab();
-    scanAndReport().catch(() => {});
+  function normalizeThreads(raw) {
+    if (!Array.isArray(raw)) return [];
+    const map = new Map();
+    for (const item of raw) {
+      const id = String(item?.id || "").trim();
+      const title = String(item?.title || "").trim();
+      if (!id && !title) continue;
+      const key = id || `title:${title.toLowerCase()}`;
+      map.set(key, { id, title, chatType: "group" });
+    }
+    return [...map.values()];
   }
-});
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === "TEAMS_WAKE_SCAN") {
-    scanAndReport()
-      .then(() => sendResponse({ ok: true }))
-      .catch((error) => sendResponse({ ok: false, error: error.message || "扫描失败" }));
-    return true;
+  function normalizeConfig(raw) {
+    const legacyList = Array.isArray(raw?.blacklist) ? raw.blacklist : [];
+    const keywords = Array.isArray(raw?.keywords) ? raw.keywords : legacyList;
+    return {
+      enabled: raw?.enabled !== false,
+      mode: raw?.mode === "block_list" ? "block_list" : "allow_list",
+      keywords: keywords.map((item) => String(item || "").trim()).filter(Boolean),
+      threads: normalizeThreads(raw?.threads),
+    };
   }
-  if (message?.type === "TEAMS_MONITOR_PROMOTED") {
-    registerMonitorTab(() => {
-      scanAndReport().catch(() => {});
-    });
-    sendResponse({ ok: true });
-    return false;
+
+  function injectPageScript() {
+    if (document.documentElement.dataset.teamsFilterInjected === "1") return;
+    document.documentElement.dataset.teamsFilterInjected = "1";
+
+    const script = document.createElement("script");
+    script.src = chrome.runtime.getURL("inject.js");
+    script.onload = function onLoad() {
+      this.remove();
+    };
+    (document.head || document.documentElement).appendChild(script);
   }
-  return false;
-});
 
-async function loadSettings() {
-  const { config } = await chrome.storage.local.get(["config"]);
-  cachedCatalog = config?.threadCatalog || {};
-  filterEnabled = config?.enabled !== false;
-}
+  injectPageScript();
 
-function registerMonitorTab(onDone) {
-  chrome.runtime.sendMessage({ type: "TEAMS_REGISTER_TAB" }, (response) => {
-    if (response?.isMonitor === false) isMonitorTab = false;
-    else if (response?.isMonitor === true) isMonitorTab = true;
+  chrome.storage.sync.get(DEFAULT_CONFIG, (data) => {
+    pushConfig(normalizeConfig(data));
     void chrome.runtime.lastError;
-    onDone?.();
-  });
-}
-
-function startRealtimeWatch() {
-  if (observerStarted) return;
-  observerStarted = true;
-
-  const root = document.documentElement || document.body;
-  if (!root) return;
-
-  const observer = new MutationObserver((mutations) => {
-    if (!mutations.length) return;
-    scheduleScan();
   });
 
-  observer.observe(root, {
-    subtree: true,
-    childList: true,
-    attributes: true,
-    attributeFilter: ["aria-label", "class", "data-tid", "data-conversation-id", "href"],
-    characterData: true,
-  });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "sync") return;
+    if (!changes.enabled && !changes.mode && !changes.keywords && !changes.blacklist && !changes.threads) return;
 
-  watchDocumentTitle();
-}
-
-function watchDocumentTitle() {
-  let lastTitle = document.title;
-  const titleEl = document.querySelector("title");
-  if (!titleEl) return;
-
-  const titleObserver = new MutationObserver(() => {
-    if (document.title === lastTitle) return;
-    lastTitle = document.title;
-    scheduleScan();
-  });
-
-  titleObserver.observe(titleEl, {
-    childList: true,
-    characterData: true,
-    subtree: true,
-  });
-}
-
-function scheduleScan() {
-  if (scanScheduled) return;
-  scanScheduled = true;
-  queueMicrotask(() => {
-    scanScheduled = false;
-    scanAndReport().catch(() => {});
-  });
-}
-
-async function scanAndReport() {
-  if (!isMonitorTab || !filterEnabled) return;
-  const utils = window.TeamsNotifyUtils;
-  if (!utils) return;
-  const threads = utils.collectAllThreadsAsync
-    ? await utils.collectAllThreadsAsync(cachedCatalog, { scrollList: false })
-    : utils.collectAllThreads(cachedCatalog);
-  await sendMessage("TEAMS_UNREAD_SNAPSHOT", { threads });
-}
-
-function sendMessage(type, payload) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({ type, ...payload }, (response) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      if (!response?.ok) {
-        reject(new Error(response?.error || "请求失败"));
-        return;
-      }
-      resolve(response);
+    chrome.storage.sync.get(DEFAULT_CONFIG, (data) => {
+      pushConfig(normalizeConfig(data));
+      void chrome.runtime.lastError;
     });
   });
-}
+})();

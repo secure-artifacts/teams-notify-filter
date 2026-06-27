@@ -1,40 +1,38 @@
 {
   "manifest_version": 3,
-  "name": "Teams 通知过滤器",
-  "version": "3.0.1",
-  "description": "Teams 右侧边栏管理通知：支持 teams.live.com，显示全部群组并打开聊天。",
-  "permissions": ["storage", "notifications", "tabs", "scripting", "alarms"],
-  "host_permissions": ["https://teams.microsoft.com/*", "https://teams.live.com/*"],
+  "name": "Teams 通知设置",
+  "version": "5.6.8",
+  "description": "Teams 通知过滤 + 聊天内群组/邀请链接网页直达。",
+  "permissions": ["storage"],
+  "host_permissions": ["*://teams.microsoft.com/*", "*://teams.live.com/*"],
   "action": {
-    "default_popup": "popup.html",
-    "default_title": "Teams 通知过滤器"
+    "default_title": "Teams 通知设置"
   },
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["https://teams.microsoft.com/*", "https://teams.live.com/*"],
-      "js": ["notification-guard.js"],
+      "matches": ["*://teams.microsoft.com/*", "*://teams.live.com/*"],
+      "js": ["content-frame.js"],
       "run_at": "document_start"
     },
     {
-      "matches": ["https://teams.microsoft.com/*", "https://teams.live.com/*"],
-      "js": [
-        "teams-idb.js",
-        "teams-nav.js",
-        "thread-utils.js",
-        "teams-sidebar.js",
-        "content.js"
-      ],
-      "css": ["teams-sidebar.css"],
+      "matches": ["*://teams.microsoft.com/*", "*://teams.live.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["*://teams.microsoft.com/*", "*://teams.live.com/*"],
+      "js": ["title-utils.js", "teams-groups.js", "teams-nav.js", "teams-invite-resolver.js", "teams-link-handler.js", "teams-panel.js"],
+      "css": ["teams-panel.css"],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["notification-guard-page.js"],
-      "matches": ["https://teams.microsoft.com/*", "https://teams.live.com/*"]
+      "resources": ["inject.js", "teams-link-page.js", "teams-invite-join-page.js"],
+      "matches": ["*://teams.microsoft.com/*", "*://teams.live.com/*"]
     }
   ]
 }
